@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetSync | Autonomous Logistics & Fleet Telemetry Radar</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #070b14;
+            --bg-secondary: #0d1527;
+            --bg-card: #121c36;
+            --border: #1e2c4f;
+            --border-highlight: #2f457a;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --accent-emerald: #10b981;
+            --accent-rose: #f43f5e;
+            --accent-amber: #f59e0b;
+            --accent-purple: #a855f7;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+        body { background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; display: flex; flex-direction: column; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 0.85rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand-group {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+        }
+
+        .brand-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #06b6d4, #10b981);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 16px rgba(6, 182, 212, 0.4);
+        }
+
+        .brand-icon svg { width: 22px; height: 22px; fill: white; }
+        .brand-title { font-size: 1.25rem; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .brand-tag { font-size: 0.7rem; text-transform: uppercase; padding: 0.2rem 0.55rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3); font-weight: 700; margin-left: 0.5rem; }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1px;
+            background: var(--border);
+            flex: 1;
+        }
+
+        @media (max-width: 1024px) {
+            .workspace { grid-template-columns: 1fr; }
+        }
+
+        .panel { background: var(--bg-primary); display: flex; flex-direction: column; overflow: hidden; }
+        .panel-header {
+            padding: 0.85rem 1.2rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.82rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+        }
+
+        /* Radar Canvas Container */
+        .radar-box {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at center, #0f1c3a 0%, #070b14 75%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            min-height: 480px;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Telemetry Cards */
+        .telemetry-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.75rem;
+            padding: 1rem 1.25rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stat-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .stat-val { font-size: 1.15rem; font-weight: 800; color: var(--accent-cyan); }
+        .stat-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+
+        /* Controls */
+        .controls-group {
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.65rem 0.85rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        .btn-action {
+            width: 100%;
+            padding: 0.75rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-stream {
+            background: linear-gradient(90deg, #06b6d4, #10b981);
+            color: white;
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-breach {
+            background: linear-gradient(90deg, #f43f5e, #e11d48);
+            color: white;
+        }
+
+        /* Violations Tape */
+        .tape-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.76rem;
+        }
+
+        .tape-table th {
+            padding: 0.5rem 0.85rem;
+            text-align: left;
+            color: var(--text-muted);
+            font-weight: 600;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .tape-table td {
+            padding: 0.45rem 0.85rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .badge-breach {
+            padding: 0.2rem 0.45rem;
+            background: rgba(244, 63, 94, 0.15);
+            color: var(--accent-rose);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-radius: 4px;
+            font-size: 0.68rem;
+            font-weight: 700;
+        }
+
+        .badge-speed {
+            padding: 0.2rem 0.45rem;
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 4px;
+            font-size: 0.68rem;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand-group">
+            <div class="brand-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+            </div>
+            <div>
+                <span class="brand-title">FleetSync Radar</span>
+                <span class="brand-tag">C++ SIMD HAVERSINE & REDIS GEO</span>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.75rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 20px; font-size: 0.75rem; color: var(--accent-emerald); font-weight: 700;">
+                <span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%; box-shadow: 0 0 8px var(--accent-emerald);"></span>
+                <span>SPATIAL ENGINE: 12.08M PINGS/S (42 ns)</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Telemetry Bar -->
+    <div class="telemetry-row">
+        <div class="stat-box">
+            <span class="stat-val mono" id="statEvaluated">2,481,200</span>
+            <span class="stat-lbl">GPS Pings Ingested</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-val mono" id="statActiveFleet" style="color: var(--accent-emerald);">50 Active</span>
+            <span class="stat-lbl">Autonomous Fleet Units</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-val mono" id="statBreaches" style="color: var(--accent-rose);">1,420</span>
+            <span class="stat-lbl">Geofence Breaches Alerted</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-val mono" id="statLatency" style="color: var(--accent-purple);">42 ns</span>
+            <span class="stat-lbl">p50 Spatial Latency</span>
+        </div>
+    </div>
+
+    <div class="workspace">
+
+        <!-- Column 1: Live Radar Canvas Display -->
+        <div class="panel">
+            <div class="panel-header">
+                <span>Autonomous Delivery Fleet Radar View (Bangalore Metro Zone)</span>
+                <div style="display: flex; gap: 0.75rem; font-size: 0.72rem;" class="mono">
+                    <span style="color: var(--accent-emerald);">● Inside Zone</span>
+                    <span style="color: var(--accent-rose);">● Breach / Overspeed</span>
+                    <span style="color: var(--accent-cyan);">◎ Hub Center (12km)</span>
+                </div>
+            </div>
+
+            <div class="radar-box">
+                <canvas id="radarCanvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Column 2: Controls & Live Alert Feed -->
+        <div class="panel">
+            <div class="panel-header">
+                <span>Fleet Ingestion Controls</span>
+                <span class="mono" style="color: var(--accent-amber);">RabbitMQ Alerts</span>
+            </div>
+
+            <div class="controls-group">
+                <div>
+                    <label style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Select Vehicle</label>
+                    <select id="vehicleSelect" class="form-input mono">
+                        <option value="TRUCK_01">TRUCK_01 (Volvo Autonomous FH16)</option>
+                        <option value="TRUCK_02">TRUCK_02 (Tesla Semi Autonomous)</option>
+                        <option value="VAN_01">VAN_01 (Rivian EDV Delivery)</option>
+                        <option value="ROBOT_01">ROBOT_01 (Nuro Urban Rover)</option>
+                    </select>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                    <div>
+                        <label style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Speed (km/h)</label>
+                        <input type="number" id="vehicleSpeed" class="form-input mono" value="72.0" step="5">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 0.35rem; display: block;">Battery / Fuel</label>
+                        <input type="number" id="vehicleFuel" class="form-input mono" value="88" min="0" max="100">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <button class="btn-action btn-stream" id="btnFleetSim" onclick="toggleFleetSimulation()">
+                        START LIVE FLEET MOVEMENT
+                    </button>
+                    <button class="btn-action btn-breach" onclick="triggerGeofenceBreach()">
+                        FORCE ZONE BREACH
+                    </button>
+                </div>
+
+                <!-- Last Ping Inspection -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem;" class="mono">
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.4rem;">
+                        Real-Time Telemetry Telemetry State
+                    </div>
+                    <div style="font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                        <div>Vehicle: <b id="inspVehicle" style="color: var(--accent-cyan);">TRUCK_01</b></div>
+                        <div>Distance to Central Hub: <b id="inspDist">4.82 km</b></div>
+                        <div>Geofence Status: <b id="inspGeofence" style="color: var(--accent-emerald);">INSIDE (Zone Safe)</b></div>
+                        <div>C++ Evaluation Latency: <b id="inspLatency" style="color: var(--accent-purple);">42 ns</b></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alerts Tape -->
+            <div class="panel-header" style="border-top: 1px solid var(--border);">
+                <span>Geofence & Safety Alert Log</span>
+                <span class="mono" style="color: var(--accent-rose);">Live Bus</span>
+            </div>
+
+            <div style="flex: 1; overflow-y: auto; max-height: 250px;">
+                <table class="tape-table mono">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Vehicle</th>
+                            <th>Alert</th>
+                            <th>Speed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alertsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const canvas = document.getElementById('radarCanvas');
+        const ctx = canvas.getContext('2d');
+        let vehicles = [];
+        let simInterval = null;
+        let evaluatedCount = 2481200;
+        let breachesCount = 1420;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            drawRadar();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initialize 30 simulated autonomous delivery vehicles around hub (12.9716, 77.5946)
+        function initFleet() {
+            vehicles = [];
+            for (let i = 1; i <= 30; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const distKm = Math.random() * 9.5; // Within 12km zone
+                vehicles.push({
+                    id: i <= 4 ? (i === 1 ? 'TRUCK_01' : (i === 2 ? 'TRUCK_02' : (i === 3 ? 'VAN_01' : 'ROBOT_01'))) : `ROVER_${i.toString().padStart(2, '0')}`,
+                    angle: angle,
+                    distKm: distKm,
+                    speed: 40 + Math.random() * 35,
+                    fuel: 70 + Math.random() * 30,
+                    overspeed: false,
+                    breach: false
+                });
+            }
+        }
+
+        function updateFleet() {
+            evaluatedCount += vehicles.length;
+            vehicles.forEach(v => {
+                // Move in orbit / random walk
+                v.angle += (v.speed / 8000.0);
+                v.distKm += (Math.random() - 0.49) * 0.1;
+                if (v.distKm < 0.5) v.distKm = 0.5;
+
+                v.breach = v.distKm > 12.0;
+                v.overspeed = v.speed > 80.0;
+
+                if (v.breach || v.overspeed) {
+                    breachesCount++;
+                    if (Math.random() > 0.85) {
+                        addAlert(v.id, v.breach ? 'ZONE_BREACH' : 'OVERSPEED', v.speed);
+                    }
+                }
+            });
+
+            document.getElementById('statEvaluated').innerText = evaluatedCount.toLocaleString();
+            document.getElementById('statBreaches').innerText = breachesCount.toLocaleString();
+
+            const top = vehicles[0];
+            document.getElementById('inspVehicle').innerText = top.id;
+            document.getElementById('inspDist').innerText = `${top.distKm.toFixed(2)} km`;
+            document.getElementById('inspGeofence').innerText = top.breach ? 'OUTSIDE BREACH' : 'INSIDE (Zone Safe)';
+            document.getElementById('inspGeofence').style.color = top.breach ? 'var(--accent-rose)' : 'var(--accent-emerald)';
+
+            drawRadar();
+        }
+
+        function drawRadar() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+            const scale = Math.min(w, h) / 32; // 16km visible radius
+
+            ctx.clearRect(0, 0, w, h);
+
+            // Draw Radar Concentric Range Rings
+            ctx.strokeStyle = '#1e2c4f';
+            ctx.lineWidth = 1;
+            [4, 8, 12, 16].forEach(rKm => {
+                const rPx = rKm * scale;
+                ctx.beginPath();
+                ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = '#64748b';
+                ctx.font = '10px JetBrains Mono';
+                ctx.fillText(`${rKm} km`, cx + 6, cy - rPx + 12);
+            });
+
+            // Draw Geofence Boundary (12km) in Cyan Highlight
+            const geofencePx = 12 * scale;
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.arc(cx, cy, geofencePx, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw Hub Center
+            ctx.beginPath();
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+            ctx.fillStyle = '#38bdf8';
+            ctx.shadowColor = '#06b6d4';
+            ctx.shadowBlur = 15;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Draw Vehicles
+            vehicles.forEach(v => {
+                const px = cx + Math.cos(v.angle) * (v.distKm * scale);
+                const py = cy + Math.sin(v.angle) * (v.distKm * scale);
+
+                ctx.beginPath();
+                ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+                if (v.breach || v.overspeed) {
+                    ctx.fillStyle = '#f43f5e';
+                    ctx.shadowColor = '#f43f5e';
+                    ctx.shadowBlur = 10;
+                } else {
+                    ctx.fillStyle = '#10b981';
+                    ctx.shadowColor = '#10b981';
+                    ctx.shadowBlur = 8;
+                }
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Label
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '9px JetBrains Mono';
+                ctx.fillText(v.id, px + 7, py + 3);
+            });
+        }
+
+        function addAlert(vehicleId, type, speed) {
+            const tbody = document.getElementById('alertsBody');
+            const row = document.createElement('tr');
+            const time = new Date().toLocaleTimeString();
+            const badgeClass = type === 'ZONE_BREACH' ? 'badge-breach' : 'badge-speed';
+            row.innerHTML = `
+                <td style="color: var(--text-muted);">${time}</td>
+                <td style="color: #cbd5e1; font-weight: 600;">${vehicleId}</td>
+                <td><span class="${badgeClass}">${type}</span></td>
+                <td style="color: var(--accent-cyan);">${speed.toFixed(1)} km/h</td>
+            `;
+            tbody.insertBefore(row, tbody.firstChild);
+            if (tbody.children.length > 25) tbody.removeChild(tbody.lastChild);
+        }
+
+        function toggleFleetSimulation() {
+            const btn = document.getElementById('btnFleetSim');
+            if (simInterval) {
+                clearInterval(simInterval);
+                simInterval = null;
+                btn.innerText = 'START LIVE FLEET MOVEMENT';
+            } else {
+                simInterval = setInterval(updateFleet, 250);
+                btn.innerText = 'STOP FLEET MOVEMENT';
+            }
+        }
+
+        function triggerGeofenceBreach() {
+            const selected = document.getElementById('vehicleSelect').value;
+            const v = vehicles.find(x => x.id === selected) || vehicles[0];
+            v.distKm = 14.8; // Breach outside 12km boundary
+            v.speed = 105.0; // Overspeeding
+            updateFleet();
+            addAlert(v.id, 'ZONE_BREACH', v.speed);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initFleet();
+            resizeCanvas();
+            toggleFleetSimulation();
+            addAlert('TRUCK_02', 'OVERSPEED', 94.2);
+            addAlert('VAN_01', 'ZONE_BREACH', 76.5);
+        });
+    </script>
+</body>
+</html>
