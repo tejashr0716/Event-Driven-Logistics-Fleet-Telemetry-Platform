@@ -61,3 +61,25 @@ async def test_telemetry_ping_breach_and_alert():
         assert data["is_inside_geofence"] is False
         assert data["is_overspeeding"] is True
         assert data["speed_delta_kmh"] > 0
+
+@pytest.mark.asyncio
+async def test_serve_radar_dashboard():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/")
+        assert res.status_code == 200
+        assert "text/html" in res.headers.get("content-type", "")
+        assert "FleetSync Radar" in res.text
+        assert "C++ SIMD HAVERSINE" in res.text
+
+@pytest.mark.asyncio
+async def test_telemetry_metrics_and_violations():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res_m = await ac.get("/api/v1/telemetry/metrics")
+        assert res_m.status_code == 200
+        assert "engine" in res_m.json()
+
+        res_v = await ac.get("/api/v1/telemetry/violations?limit=5")
+        assert res_v.status_code == 200
+        assert "violations" in res_v.json()

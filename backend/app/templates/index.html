@@ -222,6 +222,10 @@
         </div>
 
         <div style="display: flex; gap: 1rem; align-items: center;">
+            <div id="wsBadge" style="display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.75rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; font-size: 0.75rem; color: var(--accent-cyan); font-weight: 700;">
+                <span id="wsDot" style="width: 8px; height: 8px; background: var(--accent-cyan); border-radius: 50%; box-shadow: 0 0 8px var(--accent-cyan);"></span>
+                <span id="wsText">RADAR WS: CONNECTING...</span>
+            </div>
             <div style="display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.75rem; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 20px; font-size: 0.75rem; color: var(--accent-emerald); font-weight: 700;">
                 <span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%; box-shadow: 0 0 8px var(--accent-emerald);"></span>
                 <span>SPATIAL ENGINE: 12.08M PINGS/S (42 ns)</span>
@@ -347,8 +351,9 @@
         const ctx = canvas.getContext('2d');
         let vehicles = [];
         let simInterval = null;
-        let evaluatedCount = 2481200;
-        let breachesCount = 1420;
+        let evaluatedCount = 0;
+        let breachesCount = 0;
+        let socket = null;
 
         function resizeCanvas() {
             canvas.width = canvas.parentElement.clientWidth;
@@ -357,51 +362,85 @@
         }
         window.addEventListener('resize', resizeCanvas);
 
-        // Initialize 30 simulated autonomous delivery vehicles around hub (12.9716, 77.5946)
+        // Initialize 16 autonomous delivery vehicles around hub (12.9716, 77.5946)
         function initFleet() {
             vehicles = [];
-            for (let i = 1; i <= 30; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const distKm = Math.random() * 9.5; // Within 12km zone
+            const baseVehicles = ['TRUCK_01', 'TRUCK_02', 'VAN_01', 'ROBOT_01'];
+            for (let i = 1; i <= 16; i++) {
+                const angle = (i / 16) * Math.PI * 2;
+                const distKm = 2.0 + (i % 6) * 1.6;
+                const id = i <= 4 ? baseVehicles[i - 1] : `ROVER_${i.toString().padStart(2, '0')}`;
                 vehicles.push({
-                    id: i <= 4 ? (i === 1 ? 'TRUCK_01' : (i === 2 ? 'TRUCK_02' : (i === 3 ? 'VAN_01' : 'ROBOT_01'))) : `ROVER_${i.toString().padStart(2, '0')}`,
+                    id: id,
                     angle: angle,
                     distKm: distKm,
-                    speed: 40 + Math.random() * 35,
-                    fuel: 70 + Math.random() * 30,
+                    speed: 45 + (i % 5) * 8,
+                    fuel: 85 - (i * 2),
                     overspeed: false,
                     breach: false
                 });
             }
         }
 
-        function updateFleet() {
-            evaluatedCount += vehicles.length;
-            vehicles.forEach(v => {
-                // Move in orbit / random walk
-                v.angle += (v.speed / 8000.0);
-                v.distKm += (Math.random() - 0.49) * 0.1;
-                if (v.distKm < 0.5) v.distKm = 0.5;
+        async function sendVehiclePing(v) {
+            const HUB_LAT = 12.9716;
+            const HUB_LON = 77.5946;
+            const lat = HUB_LAT + (v.distKm / 111.0) * Math.sin(v.angle);
+            const lon = HUB_LON + (v.distKm / (111.0 * Math.cos(HUB_LAT * Math.PI / 180))) * Math.cos(v.angle);
 
-                v.breach = v.distKm > 12.0;
-                v.overspeed = v.speed > 80.0;
+            try {
+                const res = await fetch('/api/v1/telemetry/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vehicle_id: v.id,
+                        latitude: lat,
+                        longitude: lon,
+                        speed_kmh: v.speed,
+                        fuel_pct: v.fuel,
+                        engine_temp_c: 85.0
+                    })
+                });
 
-                if (v.breach || v.overspeed) {
-                    breachesCount++;
-                    if (Math.random() > 0.85) {
+                if (res.ok) {
+                    const data = await res.json();
+                    evaluatedCount++;
+                    v.distKm = data.distance_to_hub_km;
+                    v.breach = !data.is_inside_geofence;
+                    v.overspeed = data.is_overspeeding;
+
+                    if (v.breach || v.overspeed) {
+                        breachesCount++;
                         addAlert(v.id, v.breach ? 'ZONE_BREACH' : 'OVERSPEED', v.speed);
                     }
+
+                    document.getElementById('statEvaluated').innerText = evaluatedCount.toLocaleString();
+                    document.getElementById('statBreaches').innerText = breachesCount.toLocaleString();
+                    document.getElementById('statLatency').innerText = `${data.latency_ns} ns`;
+
+                    const selected = document.getElementById('vehicleSelect').value;
+                    if (v.id === selected || v.id === vehicles[0].id) {
+                        document.getElementById('inspVehicle').innerText = v.id;
+                        document.getElementById('inspDist').innerText = `${v.distKm.toFixed(2)} km`;
+                        document.getElementById('inspGeofence').innerText = v.breach ? 'OUTSIDE BREACH' : 'INSIDE (Zone Safe)';
+                        document.getElementById('inspGeofence').style.color = v.breach ? 'var(--accent-rose)' : 'var(--accent-emerald)';
+                    }
                 }
+            } catch (err) {
+                console.warn('Ping error:', err);
+            }
+        }
+
+        function updateFleet() {
+            vehicles.forEach(v => {
+                v.angle += (v.speed / 12000.0);
+                v.distKm += (Math.random() - 0.49) * 0.08;
+                if (v.distKm < 0.5) v.distKm = 0.5;
             });
 
-            document.getElementById('statEvaluated').innerText = evaluatedCount.toLocaleString();
-            document.getElementById('statBreaches').innerText = breachesCount.toLocaleString();
-
-            const top = vehicles[0];
-            document.getElementById('inspVehicle').innerText = top.id;
-            document.getElementById('inspDist').innerText = `${top.distKm.toFixed(2)} km`;
-            document.getElementById('inspGeofence').innerText = top.breach ? 'OUTSIDE BREACH' : 'INSIDE (Zone Safe)';
-            document.getElementById('inspGeofence').style.color = top.breach ? 'var(--accent-rose)' : 'var(--accent-emerald)';
+            // Send live ping for primary vehicles in round-robin
+            const activeVehicles = vehicles.slice(0, 4);
+            activeVehicles.forEach(v => sendVehiclePing(v));
 
             drawRadar();
         }
@@ -411,14 +450,14 @@
             const h = canvas.height;
             const cx = w / 2;
             const cy = h / 2;
-            const scale = Math.min(w, h) / 32; // 16km visible radius
+            const scale = Math.min(w, h) / 36; // 18km visible radius
 
             ctx.clearRect(0, 0, w, h);
 
             // Draw Radar Concentric Range Rings
             ctx.strokeStyle = '#1e2c4f';
             ctx.lineWidth = 1;
-            [4, 8, 12, 16].forEach(rKm => {
+            [5, 10, 15, 20].forEach(rKm => {
                 const rPx = rKm * scale;
                 ctx.beginPath();
                 ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
@@ -429,8 +468,8 @@
                 ctx.fillText(`${rKm} km`, cx + 6, cy - rPx + 12);
             });
 
-            // Draw Geofence Boundary (12km) in Cyan Highlight
-            const geofencePx = 12 * scale;
+            // Draw Geofence Boundary (15km) in Cyan Highlight
+            const geofencePx = 15 * scale;
             ctx.strokeStyle = '#06b6d4';
             ctx.lineWidth = 2;
             ctx.setLineDash([6, 4]);
@@ -483,10 +522,10 @@
                 <td style="color: var(--text-muted);">${time}</td>
                 <td style="color: #cbd5e1; font-weight: 600;">${vehicleId}</td>
                 <td><span class="${badgeClass}">${type}</span></td>
-                <td style="color: var(--accent-cyan);">${speed.toFixed(1)} km/h</td>
+                <td style="color: var(--accent-cyan);">${Number(speed).toFixed(1)} km/h</td>
             `;
             tbody.insertBefore(row, tbody.firstChild);
-            if (tbody.children.length > 25) tbody.removeChild(tbody.lastChild);
+            if (tbody.children.length > 30) tbody.removeChild(tbody.lastChild);
         }
 
         function toggleFleetSimulation() {
@@ -496,26 +535,98 @@
                 simInterval = null;
                 btn.innerText = 'START LIVE FLEET MOVEMENT';
             } else {
-                simInterval = setInterval(updateFleet, 250);
+                simInterval = setInterval(updateFleet, 800);
                 btn.innerText = 'STOP FLEET MOVEMENT';
             }
         }
 
-        function triggerGeofenceBreach() {
+        async function triggerGeofenceBreach() {
             const selected = document.getElementById('vehicleSelect').value;
             const v = vehicles.find(x => x.id === selected) || vehicles[0];
-            v.distKm = 14.8; // Breach outside 12km boundary
-            v.speed = 105.0; // Overspeeding
-            updateFleet();
-            addAlert(v.id, 'ZONE_BREACH', v.speed);
+            v.distKm = 22.5; // Well outside 15km boundary
+            v.speed = 115.0; // Overspeeding
+
+            await sendVehiclePing(v);
+            drawRadar();
+        }
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/fleet/live`;
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                const badge = document.getElementById('wsBadge');
+                const dot = document.getElementById('wsDot');
+                const txt = document.getElementById('wsText');
+                if (badge) {
+                    badge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                    badge.style.background = 'rgba(16, 185, 129, 0.15)';
+                    badge.style.color = 'var(--accent-emerald)';
+                    dot.style.background = 'var(--accent-emerald)';
+                    dot.style.boxShadow = '0 0 10px var(--accent-emerald)';
+                    txt.innerText = 'RADAR WS: LIVE';
+                }
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.vehicle_id) {
+                        const v = vehicles.find(x => x.id === data.vehicle_id);
+                        if (v) {
+                            v.speed = data.speed;
+                            v.breach = !data.inside;
+                            v.overspeed = data.overspeed;
+                            drawRadar();
+                        }
+                    }
+                } catch (e) {}
+            };
+
+            socket.onclose = () => {
+                const txt = document.getElementById('wsText');
+                if (txt) txt.innerText = 'RADAR WS: RECONNECTING';
+                setTimeout(initWebSocket, 2000);
+            };
+        }
+
+        async function loadInitialData() {
+            try {
+                // Fetch metrics
+                const mRes = await fetch('/api/v1/telemetry/metrics');
+                if (mRes.ok) {
+                    const data = await mRes.json();
+                    if (data.metrics) {
+                        evaluatedCount = data.metrics.total_evaluations;
+                        breachesCount = data.metrics.geofence_breaches;
+                        document.getElementById('statEvaluated').innerText = evaluatedCount.toLocaleString();
+                        document.getElementById('statBreaches').innerText = breachesCount.toLocaleString();
+                        document.getElementById('statLatency').innerText = `${data.metrics.avg_latency_ns} ns`;
+                    }
+                }
+
+                // Fetch recent violations
+                const vRes = await fetch('/api/v1/telemetry/violations?limit=15');
+                if (vRes.ok) {
+                    const data = await vRes.json();
+                    if (data.violations && data.violations.length > 0) {
+                        for (const v of data.violations.slice().reverse()) {
+                            addAlert(v.vehicle_id, v.violation_type, v.speed_kmh);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('Initial load error:', err);
+            }
         }
 
         window.addEventListener('DOMContentLoaded', () => {
             initFleet();
             resizeCanvas();
+            initWebSocket();
+            loadInitialData();
             toggleFleetSimulation();
-            addAlert('TRUCK_02', 'OVERSPEED', 94.2);
-            addAlert('VAN_01', 'ZONE_BREACH', 76.5);
         });
     </script>
 </body>
